@@ -26,10 +26,21 @@ vim.opt.winborder = "rounded"
 vim.opt.completeopt = "menu,menuone,noselect"
 vim.opt.wildmenu = true
 vim.opt.wildmode = "longest:full,full"
-
--- CHANGED: Enable system clipboard integration for copy/paste from browser
 vim.opt.clipboard = "unnamedplus"
+vim.opt.cursorline = true
 
+-- Code folding
+vim.opt.foldmethod = "indent" -- or "syntax" for syntax-based folding
+vim.opt.foldlevel = 99        -- Open all folds by default
+vim.opt.foldlevelstart = 99   -- Open all folds when opening a file
+vim.opt.foldenable = true
+
+-- Folding keymaps
+vim.keymap.set('n', 'za', 'za', { desc = 'Toggle fold under cursor' })
+vim.keymap.set('n', 'zR', 'zR', { desc = 'Open all folds' })
+vim.keymap.set('n', 'zM', 'zM', { desc = 'Close all folds' })
+vim.keymap.set('n', 'zC', 'zC', { desc = 'Close fold under cursor' })
+vim.keymap.set('n', 'zO', 'zO', { desc = 'Open fold under cursor' })
 -- Keymaps
 vim.keymap.set('n', '<leader>o', ':update<CR> :source<CR>')
 vim.keymap.set('n', '<leader>w', ':write<CR>')
@@ -37,11 +48,11 @@ vim.keymap.set('n', '<leader>q', ':quit<CR>')
 vim.keymap.set('n', '<leader>y', '+y<CR>')
 vim.keymap.set('n', '<leader>d', '+d<CR>')
 vim.keymap.set('n', '<leader>pv', '<cmd>Ex<CR>')
-vim.keymap.set('n', '<leader>tp', ':TypstPreview<CR>')
 vim.keymap.set('n', '<leader>f', ':Pick files<CR>')
 vim.keymap.set('n', '<leader>h', ':Pick help<CR>')
 vim.keymap.set('n', '<leader>e', ':Oil<CR>')
 vim.keymap.set('n', '<leader>r', ':!./run.sh<CR>')
+vim.keymap.set('n', '<leader>tp', ':TypstPreview<CR>')
 vim.keymap.set('n', '<leader>nf', function()
   local filename = vim.fn.expand('%:t')
   local source = vim.fn.expand('%')
@@ -87,12 +98,26 @@ vim.keymap.set('n', '<leader>ld', vim.diagnostic.open_float)
 vim.keymap.set('i', '<Tab>', [[pumvisible() ? "\<C-n>" : "\<Tab>"]], { expr = true })
 vim.keymap.set('i', '<S-Tab>', [[pumvisible() ? "\<C-p>" : "\<S-Tab>"]], { expr = true })
 vim.keymap.set('i', '<CR>', [[pumvisible() ? "\<C-y>" : "\<CR>"]], { expr = true })
+
+
+vim.keymap.set('t', '<Esc>', [[<C-\><C-n>]], { noremap = true })
 -- Setup plugins with lazy.nvim
 require("lazy").setup({
+  -- Git signs in gutter
+  {
+    "lewis6991/gitsigns.nvim",
+    event = "BufReadPre",
+    opts = {},
+    keys = {
+      { "<leader>gd", "<cmd>Gitsigns preview_hunk<cr>", desc = "Preview hunk" },
+      { "]g",         "<cmd>Gitsigns next_hunk<cr>",    desc = "Next hunk" },
+      { "[g",         "<cmd>Gitsigns prev_hunk<cr>",    desc = "Prev hunk" },
+    }
+  },
   --Git Wrapper
   {
     "tpope/vim-fugitive",
-    cmd = { "Git", "G" },
+    cmd = { "Git", "G", "Gdiffsplit", "Gvdiffsplit" },
     keys = {
       { "<leader>gg", "<cmd>Git<cr>",        desc = "Git status" },
       { "<leader>ga", "<cmd>Git add .<cr>",  desc = "Git status" },
@@ -100,6 +125,16 @@ require("lazy").setup({
       { "<leader>gp", "<cmd>Git push<cr>",   desc = "Git push" },
       { "<leader>gl", "<cmd>Git log<cr>",    desc = "Git log" },
     }
+  },
+  {
+    "kdheepak/lazygit.nvim",
+    dependencies = {
+      "nvim-lua/plenary.nvim",
+    },
+    cmd = { "LazyGit", "LazyGitConfig", "LazyGitFilter" },
+    keys = {
+      { "<leader>lg", "<cmd>LazyGit<cr>", desc = "LazyGit" },
+    },
   },
   -- Typst Preview
   {
@@ -173,7 +208,7 @@ require("lazy").setup({
 
       -- CHANGED: Use mason-lspconfig for automatic installation (without typst)
       require("mason-lspconfig").setup({
-        ensure_installed = { "lua_ls", "clangd", "ts_ls", "tailwindcss" },
+        ensure_installed = { "lua_ls", "clangd", "ts_ls", "tailwindcss", "pyright", "arduino_language_server" },
         automatic_installation = true,
       })
 
@@ -203,6 +238,23 @@ require("lazy").setup({
           })
         end
       })
+      -- Arduino LSP
+      vim.api.nvim_create_autocmd("FileType", {
+        pattern = "arduino",
+        callback = function()
+          vim.lsp.start({
+            name = "arduino_language_server",
+            cmd = {
+              "arduino-language-server",
+              "-cli-config", vim.fn.expand("~/.arduino15/arduino-cli.yaml"),
+              "-clangd", "clangd",
+              "-cli", "arduino-cli",
+              "-fqbn", "arduino:avr:uno" -- Change this to match your board
+            },
+            root_dir = vim.fs.dirname(vim.fs.find({ '*.ino', '.git' }, { upward = true })[1]) or vim.fn.getcwd(),
+          })
+        end
+      })
       -- C/C++ LSP
       vim.api.nvim_create_autocmd("FileType", {
         pattern = { "c", "cpp" },
@@ -214,7 +266,28 @@ require("lazy").setup({
           })
         end
       })
-
+      -- Python LSP
+      vim.api.nvim_create_autocmd("FileType", {
+        pattern = "python",
+        callback = function()
+          vim.lsp.start({
+            name = "pyright",
+            cmd = { "pyright-langserver", "--stdio" },
+            root_dir = vim.fs.dirname(vim.fs.find(
+                { 'pyproject.toml', 'setup.py', 'setup.cfg', 'requirements.txt', 'Pipfile', '.git' }, { upward = true })
+              [1]),
+            settings = {
+              python = {
+                analysis = {
+                  autoSearchPaths = true,
+                  diagnosticMode = "workspace",
+                  useLibraryCodeForTypes = true
+                }
+              }
+            }
+          })
+        end
+      })
       -- TypeScript/JavaScript LSP (for React/Next.js)
       vim.api.nvim_create_autocmd("FileType", {
         pattern = { "javascript", "javascriptreact", "typescript", "typescriptreact" },
@@ -282,3 +355,4 @@ require("lazy").setup({
     end
   },
 })
+
